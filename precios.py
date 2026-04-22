@@ -1,188 +1,112 @@
+"""
+precios.py — Actualiza precios de templates en MongoDB desde precios.xlsx.
+
+Mejoras respecto a la versión anterior:
+- Eliminado el uso de eval() para acceder a variables dinámicas.
+  Los datos se almacenan directamente en diccionarios.
+- Lógica de actualización extraída en una función reutilizable.
+- Conexión a MongoDB centralizada con context manager.
+"""
+
 from openpyxl import load_workbook
-import pymongo
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 import constantes as const
 
+
+# ─── Lectura del Excel ────────────────────────────────────────────────────────
+
+def _leer_pares(sheet, celdas: list[tuple[str, str]]) -> list[int]:
+    """Lee pares de celdas (mo, material) y retorna lista plana de enteros."""
+    valores = []
+    for col_mo, col_mat in celdas:
+        valores.append(int(sheet[col_mo].value))
+        valores.append(int(sheet[col_mat].value))
+    return valores
+
+
 wb = load_workbook("precios.xlsx", data_only=True)
-sh = wb["Nafta"]
-n1 = [int(sh["e26"].value), int(sh["e27"].value), 
-      int(sh["g26"].value), int(sh["g27"].value),
-      int(sh["i26"].value), int(sh["i27"].value),
-      int(sh["k26"].value), int(sh["k27"].value),
-      int(sh["m26"].value), int(sh["m27"].value),
-      int(sh["o26"].value), int(sh["o27"].value),
-      int(sh["q26"].value), int(sh["q27"].value)]
 
-n2 = [int(sh["e53"].value), int(sh["e54"].value), 
-      int(sh["g53"].value), int(sh["g54"].value),
-      int(sh["i53"].value), int(sh["i54"].value),
-      int(sh["k53"].value), int(sh["k54"].value),
-      int(sh["m53"].value), int(sh["m54"].value),
-      int(sh["o53"].value), int(sh["o54"].value),
-      int(sh["q53"].value), int(sh["q54"].value)]
+# ── Nafta (7 servicios × 7 variantes) ────────────────────────────────────────
+sh_n = wb["Nafta"]
+FILAS_NAFTA = [26, 53, 80, 107, 134, 161, 188]
+COLS_NAFTA  = ["e", "g", "i", "k", "m", "o", "q"]
 
-n3 = [int(sh["e80"].value), int(sh["e81"].value), 
-      int(sh["g80"].value), int(sh["g81"].value),
-      int(sh["i80"].value), int(sh["i81"].value),
-      int(sh["k80"].value), int(sh["k81"].value),
-      int(sh["m80"].value), int(sh["m81"].value),
-      int(sh["o80"].value), int(sh["o81"].value),
-      int(sh["q80"].value), int(sh["q81"].value)]
+nafta: dict[str, list[int]] = {}
+for srv, fila in enumerate(FILAS_NAFTA, start=1):
+    pares = [(f"{col}{fila}", f"{col}{fila+1}") for col in COLS_NAFTA]
+    nafta[f"n{srv}"] = _leer_pares(sh_n, pares)
 
-n4 = [int(sh["e107"].value), int(sh["e108"].value), 
-      int(sh["g107"].value), int(sh["g108"].value),
-      int(sh["i107"].value), int(sh["i108"].value),
-      int(sh["k107"].value), int(sh["k108"].value),
-      int(sh["m107"].value), int(sh["m108"].value),
-      int(sh["o107"].value), int(sh["o108"].value),
-      int(sh["q107"].value), int(sh["q108"].value)]
+# ── Diesel (5 servicios × 3 variantes) ───────────────────────────────────────
+sh_d = wb["Diesel"]
+FILAS_DIESEL = [26, 53, 80, 107, 134]
+COLS_DIESEL  = ["e", "g", "i"]
 
-n5 = [int(sh["e134"].value), int(sh["e135"].value), 
-      int(sh["g134"].value), int(sh["g135"].value),
-      int(sh["i134"].value), int(sh["i135"].value),
-      int(sh["k134"].value), int(sh["k135"].value),
-      int(sh["m134"].value), int(sh["m135"].value),
-      int(sh["o134"].value), int(sh["o135"].value),
-      int(sh["q134"].value), int(sh["q135"].value)]
+diesel: dict[str, list[int]] = {}
+for srv, fila in enumerate(FILAS_DIESEL, start=1):
+    pares = [(f"{col}{fila}", f"{col}{fila+1}") for col in COLS_DIESEL]
+    diesel[f"d{srv}"] = _leer_pares(sh_d, pares)
 
-n6 = [int(sh["e161"].value), int(sh["e162"].value), 
-      int(sh["g161"].value), int(sh["g162"].value),
-      int(sh["i161"].value), int(sh["i162"].value),
-      int(sh["k161"].value), int(sh["k162"].value),
-      int(sh["m161"].value), int(sh["m162"].value),
-      int(sh["o161"].value), int(sh["o162"].value),
-      int(sh["q161"].value), int(sh["q162"].value)]
+# ── Amarok (10 servicios × 2 variantes) ──────────────────────────────────────
+sh_a = wb["Amarok "]
+FILAS_AMAROK = [23, 47, 71, 95, 119, 143, 167, 191, 215, 239]
+COLS_AMAROK  = ["g", "i"]
 
-n7 = [int(sh["e188"].value), int(sh["e189"].value), 
-      int(sh["g188"].value), int(sh["g189"].value),
-      int(sh["i188"].value), int(sh["i189"].value),
-      int(sh["k188"].value), int(sh["k189"].value),
-      int(sh["m188"].value), int(sh["m189"].value),
-      int(sh["o188"].value), int(sh["o189"].value),
-      int(sh["q188"].value), int(sh["q189"].value)]
-
-sh = wb["Diesel"]
-
-d1 = [int(sh["e26"].value), int(sh["e27"].value), 
-      int(sh["g26"].value), int(sh["g27"].value),
-      int(sh["i26"].value), int(sh["i27"].value)]
-
-d2 = [int(sh["e53"].value), int(sh["e54"].value), 
-      int(sh["g53"].value), int(sh["g54"].value),
-      int(sh["i53"].value), int(sh["i54"].value)]
-
-d3 = [int(sh["e80"].value), int(sh["e81"].value), 
-      int(sh["g80"].value), int(sh["g81"].value),
-      int(sh["i80"].value), int(sh["i81"].value)]
-
-d4 = [int(sh["e107"].value), int(sh["e108"].value), 
-      int(sh["g107"].value), int(sh["g108"].value),
-      int(sh["i107"].value), int(sh["i108"].value)]
-
-d5 = [int(sh["e134"].value), int(sh["e135"].value), 
-      int(sh["g134"].value), int(sh["g135"].value),
-      int(sh["i134"].value), int(sh["i135"].value)]
-
-sh = wb['Amarok ']
-
-a1 = [int(sh["g23"].value), int(sh["g24"].value),
-      int(sh["i23"].value), int(sh["i24"].value)]
-
-a2 = [int(sh["g47"].value), int(sh["g48"].value),
-      int(sh["i47"].value), int(sh["i48"].value)]
-
-a3 = [int(sh["g71"].value), int(sh["g72"].value),
-      int(sh["i71"].value), int(sh["i72"].value)]
-
-a4 = [int(sh["g95"].value), int(sh["g96"].value),
-      int(sh["i95"].value), int(sh["i96"].value)]
-
-a5 = [int(sh["g119"].value), int(sh["g120"].value),
-      int(sh["i119"].value), int(sh["i120"].value)]
-
-a6 = [int(sh["g143"].value), int(sh["g144"].value),
-      int(sh["i143"].value), int(sh["i144"].value)]
-
-a7 = [int(sh["g167"].value), int(sh["g168"].value),
-      int(sh["i167"].value), int(sh["i168"].value)]
-
-a8 = [int(sh["g191"].value), int(sh["g192"].value),
-      int(sh["i191"].value), int(sh["i192"].value)]
-
-a9 = [int(sh["g215"].value), int(sh["g216"].value),
-      int(sh["i215"].value), int(sh["i216"].value)]
-
-a10 = [int(sh["g239"].value), int(sh["g240"].value),
-       int(sh["i239"].value), int(sh["i240"].value)]
-
-# Traer templates desde mongo
-uri = "mongodb+srv://"+const.USER_MONGO+":"+const.PASS_MONGO+"@cluster0.g0ktnap.mongodb.net/?retryWrites=true&w=majority"
-# Create a new client and connect to the server
-client = MongoClient(uri, server_api=ServerApi('1'))
-# Obtener json
-db = client['work']
-
-manodeobra = "data.1.tercero.emo.0.importe"
-material = "data.1.tercero.ematerial.0.importe"
-
-#db.templates.update_one({'codigo':"d55"}, {'$set': {"data.1.tercero.emo.0.importe": "999"}})
-#db.templates.update_one({'codigo':"d55"}, {'$set': {"data.1.tercero.ematerial.0.importe": "999"}})
-#############################
-##Actualizacion precios Nafta
-#############################
-vehiculo = "n"
-servicio = 1
-while servicio<=7:
-      i = 0
-      arreglo =""
-      arreglo = vehiculo + str(servicio)
-      while i < 14:
-            gamma = i // 2
-            gamma+=1
-            codigo = vehiculo + str(servicio) + str(gamma)      
-            db.templates.update_one({'codigo':codigo}, {'$set': {manodeobra: str(eval(arreglo)[i])}})
-            db.templates.update_one({'codigo':codigo}, {'$set': {material: str(eval(arreglo)[i+1])}})                  
-            i+=2
-      
-      servicio+=1
-##############################
-##Actualizacion precios Diesel
-##############################
-vehiculo = "d"
-servicio = 1
-while servicio <= 5:
-      i = 0
-      arreglo =""
-      arreglo = vehiculo + str(servicio)
-      while i < 6:
-            gamma = (i + 8) // 2
-            gamma+=1
-            codigo = vehiculo + str(servicio) + str(gamma)      
-            db.templates.update_one({'codigo':codigo}, {'$set': {manodeobra: str(eval(arreglo)[i])}})
-            db.templates.update_one({'codigo':codigo}, {'$set': {material: str(eval(arreglo)[i+1])}})                  
-            i+=2
-      
-      servicio+=1
-##############################
-##Actualizacion precios Amarok
-##############################
-vehiculo = "a"
-servicio = 1
-while servicio <= 10:
-      i = 0
-      arreglo =""
-      arreglo = vehiculo + str(servicio)
-      while i < 4:
-            gamma = i // 2
-            gamma+=1
-            codigo = vehiculo + str(servicio) + str(gamma)      
-            db.templates.update_one({'codigo':codigo}, {'$set': {manodeobra: str(eval(arreglo)[i])}})
-            db.templates.update_one({'codigo':codigo}, {'$set': {material: str(eval(arreglo)[i+1])}})                  
-            i+=2
-      
-      servicio+=1
-##############################
-client.close()
+amarok: dict[str, list[int]] = {}
+for srv, fila in enumerate(FILAS_AMAROK, start=1):
+    pares = [(f"{col}{fila}", f"{col}{fila+1}") for col in COLS_AMAROK]
+    amarok[f"a{srv}"] = _leer_pares(sh_a, pares)
 
 
+# ─── Actualización en MongoDB ─────────────────────────────────────────────────
+
+CAMPO_MO  = "data.1.tercero.emo.0.importe"
+CAMPO_MAT = "data.1.tercero.ematerial.0.importe"
+
+
+def actualizar_grupo(db, datos: dict[str, list[int]], gamma_offset: int = 1):
+    """
+    Itera sobre un grupo de templates y actualiza MO + material.
+
+    `datos` es un dict como {"n1": [mo1, mat1, mo2, mat2, ...], ...}
+    Cada par (mo, mat) corresponde a una variante (gamma) del servicio.
+    """
+    for clave, valores in datos.items():
+        for i in range(0, len(valores), 2):
+            gamma = (i // 2) + gamma_offset
+            codigo = f"{clave}{gamma}"
+            db.templates.update_one(
+                {"codigo": codigo},
+                {"$set": {CAMPO_MO: str(valores[i]), CAMPO_MAT: str(valores[i + 1])}},
+            )
+            print(f"  ✔ {codigo}: MO={valores[i]}, MAT={valores[i+1]}")
+
+
+uri = (
+    f"mongodb+srv://{const.USER_MONGO}:{const.PASS_MONGO}"
+    "@cluster0.g0ktnap.mongodb.net/?retryWrites=true&w=majority"
+)
+
+with MongoClient(uri, server_api=ServerApi("1")) as client:
+    db = client["work"]
+
+    print("─── Actualizando Nafta ───")
+    actualizar_grupo(db, nafta, gamma_offset=1)
+
+    print("─── Actualizando Diesel ───")
+    # Diesel empieza en gamma 4 según lógica original: (i+8)//2 + 1
+    # Para d1: i=0 → gamma=5; i=2 → gamma=6; i=4 → gamma=7
+    for clave, valores in diesel.items():
+        for i in range(0, len(valores), 2):
+            gamma = (i + 8) // 2 + 1
+            codigo = f"{clave}{gamma}"
+            db.templates.update_one(
+                {"codigo": codigo},
+                {"$set": {CAMPO_MO: str(valores[i]), CAMPO_MAT: str(valores[i + 1])}},
+            )
+            print(f"  ✔ {codigo}: MO={valores[i]}, MAT={valores[i+1]}")
+
+    print("─── Actualizando Amarok ───")
+    actualizar_grupo(db, amarok, gamma_offset=1)
+
+print("\n✅ Actualización completada.")
