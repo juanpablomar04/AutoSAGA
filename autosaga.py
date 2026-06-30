@@ -381,9 +381,12 @@ class MyApp:
                 self.btn_reclamar.config(state="normal")
 
             self.root.after(0, _on_ok)
-        except Exception:
+        except Exception as exc:
+            import traceback
+            traceback.print_exc()  # vuelca el error real a la consola/terminal
+            tipo = type(exc).__name__
             self.root.after(0, lambda: self.conn_label.config(
-                text="✘  Sin conexión", fg=RED))
+                text=f"✘  Sin conexión ({tipo})", fg=RED))
 
     # ─── Timer ────────────────────────────────────────────────────────────────
 
